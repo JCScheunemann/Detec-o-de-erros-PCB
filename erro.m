@@ -5,6 +5,7 @@ pkg load signal
 pkg load image
 
 plots=0;
+WSize=64; %tamanho da janela de analise
 
 a=imread("layout.png");	%load img alvo
 abw=rgb2gray(a);  %converte para B&W
@@ -26,27 +27,34 @@ n_deep=4;
 if(sum(sum(abs(B-A))))
 	disp("Erros foram encontrados, iniciando deteccao de localizacao");
 	Dif=B-A;
+	#tentativa de encontrar a regiao dos erros
+	M=zeros(20,20);
+	M(6:15,6:15)=1;
+	tmp=conv2(abs(Dif),M);
+	[tmp m]=bwlabel(tmp);
+	disp(["Encontrados ",num2str(m)," erros"]);
+	
 	[y x]= size(Dif);
-	nx=floor(x/64);
-	ny=floor(y/64);
+	nx=floor(x/WSize);
+	ny=floor(y/WSize);
 	for j=1:nx
 		for k=1:ny
-			if(sum(sum(abs(Dif((k-1)*64+1:k*64,(j-1)*64+1:j*64)))))
-				[tmp m]=bwlabel(A((k-1)*64+1:k*64,(j-1)*64+1:j*64));
-				[tmp n]=bwlabel(B((k-1)*64+1:k*64,(j-1)*64+1:j*64));
-				[tmp p]=bwlabel(~A((k-1)*64+1:k*64,(j-1)*64+1:j*64));
-				[tmp q]=bwlabel(~B((k-1)*64+1:k*64,(j-1)*64+1:j*64));
+			if(sum(sum(abs(Dif((k-1)*WSize+1:k*WSize,(j-1)*WSize+1:j*WSize)))))
+				[tmp m]=bwlabel(A((k-1)*WSize+1:k*WSize,(j-1)*WSize+1:j*WSize));
+				[tmp n]=bwlabel(B((k-1)*WSize+1:k*WSize,(j-1)*WSize+1:j*WSize));
+				[tmp p]=bwlabel(~A((k-1)*WSize+1:k*WSize,(j-1)*WSize+1:j*WSize));
+				[tmp q]=bwlabel(~B((k-1)*WSize+1:k*WSize,(j-1)*WSize+1:j*WSize));
 				color='g';
 				if(m>n)
 					color='b';
 				elseif(p>q)
 					color='r';
 				end				
-				rectangle('Position',[ ((j-1)*64+1) ((k-1)*64+1) (64) (64)],'EdgeColor',color);
+				rectangle('Position',[ ((j-1)*WSize+1) ((k-1)*WSize+1) (WSize) (WSize)],'EdgeColor',color);
 			end
 		end
-		if(sum(sum(abs(Dif(y-64:y,(j-1)*64+1:j*64)))))
-			rectangle('Position',[ ((j-1)*64+1) ((k-1)*64+1) (64) (64)],'EdgeColor','r');
+		if(sum(sum(abs(Dif(y-WSize:y,(j-1)*WSize+1:j*WSize)))))
+			rectangle('Position',[ ((j-1)*WSize+1) ((k-1)*WSize+1) (WSize) (WSize)],'EdgeColor','r');
 		end
 	end
 else
