@@ -1,69 +1,114 @@
+%
+%	Algoritmo para a execucao automatizada da comparacao Layout vs Schematics
+%	Desenvolvido por Jean C. Scheunemann (https://github.com/JCScheunemann) em julho de 2017
+%	License:
+%		Distribuido sob os termos da Open Software fundation, sendo permitida a distribuicao, 
+%		copia e alteracao, desde que as devidas fontes sejam citadas(https://github.com/JCScheunemann/Detec-o-de-erros-PCB).
+%
+%	Descricao de funcionamento:
+%		1-Carrega-se as imagens (projeto e layout ja normalizado);
+%		2-Converte-se para um array de valores binarios;
+%		3-Executa-se a subtracao do vetor original no vetor layout para obter-se as diferencas;
+%		4-Realiza-se uma etapa inicial de filtragem para a eliminacao do "pixelShaping";
+%		5-Calula-se o tamanho das regioes de erro, utilizando-se a convolucao da matriz diferenca 
+%			com uma matriz de centralizacao;
+%		6-Classificacao e plot dos erros encontrados;
+
 close all;
 clear all;
 
+%Carregamendo das bibliotecas, apenas para octave
 pkg load signal
 pkg load image
 
-plots=0;
-WSize=64; %tamanho da janela de analise
-borderSize=20
+%Parametros globais
+borderSize=20;	%tamanho da ragiao adicional na regiao de erro
+pixelShape=2;	%tamanho da regiao de tolerancia no filtro "anti-pixelShaping"
 
-a=imread("layout.png");	%load img alvo
-abw=rgb2gray(a);  %converte para B&W
-A=im2bw(abw,0.8);
+%Acumuladores 
+rompimentos=0;	%acumulador de erros classificados como rompimentos
+curtos=0;		%acumulador de erros classificados como curtos
 
-b=imread("layout_m.png");	%load img alvo
-bbw=rgb2gray(b);  %converte para B&W
-B=im2bw(bbw,0.8);
+%Etapa 1 e 2- Carregamento e conversao das imagens
+a=imread("layout.png");		%carrega a imagem do projeto
+A=im2bw(a, graythresh(a));	%converte para B&W
 
-%plot initial result
-if(plots)
-	subplot(3,1,1);imshow(A);title("Projeto original");
-	subplot(3,1,2);imshow(B);title("Layout produzido");
-	subplot(3,1,3);imshow(((B-A)+1)./2);title("Erros detectados"); hold on;
-end
-%
-figure; imshow(B)
-rompimentos=0;
-curtos=0;
-if(sum(sum(abs(B-A))))
+b=imread("layout_m.png");	%carrega a imagem do layout
+B=im2bw(b, graythresh(b));	%converte para B&W
+
+if(sum(sum(abs(B-A))))		%verifica se existem erros na imagem
 	disp("\n\n\nErros foram encontrados, iniciando deteccao de localizacao");
+	
+	%Etapa 3 - Calculo da diferenca
 	Dif=B-A;
 	[y x]= size(Dif);
-	#tentativa de encontrar a regiao dos erros
-	M=zeros(20,20);
-	M(6:15,6:15)=1;
-	tmp1=conv2(abs(Dif),M);
-	[b m]=bwboundaries(tmp1);
-	disp(["Encontrados ",num2str(length(b))," erros, Inicinado analise..."]);	
+	
+	%Etapa 4 - Filtro para a correcao do pixelshaping causado pelo "resize" utilizado na normalizacao das imagens 
+	%cria uma regiao de tolerancia de n pixels entorno dos contornos do projeto original
+	tmp=bwboundaries(A);	%funcao que realiza a extracao dos contornos
+	for i=2:length(tmp)		%para cada contorno encontrado aplica-se o filtro
+		for j=1:length(tmp{i})
+			tmp1=tmp{i};
+			y1=tmp1(j,1)+[-pixelShape:pixelShape];
+			x1=tmp1(j,2)+[-pixelShape:pixelShape];
+			if(tmp1(j,1)<pixelShape+1)
+				y1=[1:pixelShape];
+			elseif(tmp1(j,1)>y)
+				y1=[y-pixelShape-1:y];
+			end
+			if(tmp1(j,2)<pixelShape+1)
+				x1=[1:pixelShape];
+			elseif(tmp1(j,2)>x)
+				x1=[x-pixelShape-1:x];
+			end
+			Dif(y1,x1)=0;
+		end
+	end	
+	figure; imshow(B);
+	
+	%Etapa 5 - Calculo das regioes de erro
+	M=zeros(20,20);M(6:15,6:15)=1;	%criacao do kernel do filtro (matriz de centralizacao)
+	tmp1=conv2(abs(Dif),M);			%convolucao da matriz diferenca com o filtro
+	[b m]=bwboundaries(tmp1);		%deteccao dos contornos formados pelas regioes de erro, agora agrupados por vizinhanca pelo filtro anterior
+	disp(["Encontrados ",num2str(length(b))," erros, Inicinado analise..."]);
+	
+	%Etapa 6 - Classificacao dos erros	
 	for i =1:length(b)
-		c1=max(b{i});
+		%pega os extremos do ccontorno de erro
+		c1=max(b{i});	
 		c2=min(b{i});
-		ya=(c2(1)-borderSize);
-		yb=(c1(1)+borderSize);
-		xa=(c2(2)-borderSize);
-		xb=(c1(2)+borderSize);
-		if(xb>x)
+		%calcula as coordenadas das regioes de analise
+		ya=(c2(1)-borderSize);	%y inferior
+		yb=(c1(1)+borderSize);	%y superior
+		xa=(c2(2)-borderSize);	%x inferior
+		xb=(c1(2)+borderSize);	%x superior
+		if(xb>x) 	%seta os limites superiores de X
 			xb=x;
 		end
-		[tmp m]=bwlabel( A(ya:yb , xa:xb));
-		[tmp n]=bwlabel( B(ya:yb , xa:xb));
-		[tmp p]=bwlabel(~A(ya:yb , xa:xb));
-		[tmp q]=bwlabel(~B(ya:yb , xa:xb));
+		if(yb>y)	%seta os limites superiores de Y
+			yb=y;
+		end
+		[tmp m]=bwlabel( A(ya:yb , xa:xb));	%calcula-se o numero de regioes fechadas no projeto original 
+		[tmp n]=bwlabel( B(ya:yb , xa:xb));	%calcula-se o numero de regioes fechadas no layout
+		[tmp p]=bwlabel(~A(ya:yb , xa:xb));	%calcula-se o numero de regioes fechadas no negativo do projeto original 
+		[tmp q]=bwlabel(~B(ya:yb , xa:xb));	%calcula-se o numero de regioes fechadas no negativo do layout
 		color='g';
-		if(m>n)
+		%Se a contagem do numero de corpos solidos(contornos fechados) em uma determinada regiao for diferente no projeto original e no layout, ocorrereu um erro "destrutivo", caso contrario, o erro nao impepedira o funcionamento do circuito  
+		if(m>n)	%verivica-se se ocorreu a diminuicao da contagem em uma regiao, erro classificado como rompimento de continuidade
 			color='b';
 			rompimentos=rompimentos+1;
-		elseif(p>q)
+		elseif(p>q)	%verivica-se se ocorreu a diminuicao da contagem em uma regiao, utilizando o negativo das imagens, erro classificado como criacao de continuidade (curto)
 			color='r';
 			curtos=curtos+1;
 		end
+		%plot para a demarcacao visal da regiao do erro
 		p=[ (c2(2)-borderSize) (c2(1)-borderSize) ((c1(2)-c2(2))+borderSize) ((c1(1)-c2(1))+borderSize)];
 		rectangle('Position',p,'EdgeColor',color);
 	end
-	disp(["\t Rompimentos de trilhas:",num2str(rompimentos)]);
-	disp(["\t Curtos:",num2str(curtos)]);
-	disp(["\t Erros nao destrutivos:",num2str(length(b)-rompimentos-curtos)]);
+	%imprime resultados no prompt
+	disp(["\t Rompimentos de trilhas(Azul):",num2str(rompimentos)]);
+	disp(["\t Curtos(Vermelho):",num2str(curtos)]);
+	disp(["\t Erros nao destrutivos(Verde):",num2str(length(b)-rompimentos-curtos)]);
 else
 	disp("Sem erros");
 end
