@@ -1,18 +1,20 @@
 %
-%	Algoritmo para a execucao automatizada da comparacao Layout vs Schematics
+%	Algoritmo para a execução automatizada da comparação Layout vs Schematics
 %	Desenvolvido por Jean C. Scheunemann (https://github.com/JCScheunemann) em julho de 2017
 %	License:
-%		Distribuido sob os termos da Open Software fundation, sendo permitida a distribuicao, 
-%		copia e alteracao, desde que as devidas fontes sejam citadas(https://github.com/JCScheunemann/Detec-o-de-erros-PCB).
+%		Distribuido sob os termos da licenca BEER-WARE, Enquanto você retiver esta nota você
+%		podera fazer o que quiser com esta coisa. Caso nos encontremos algum dia e você ache
+% 		que esta coisa vale algo, você poderá me comprar uma cerveja(ou mais) em retribuição
+%					Por Jean C. Scheunemann.
 %
 %	Descricao de funcionamento:
 %		1-Carrega-se as imagens (projeto e layout ja normalizado);
-%		2-Converte-se para um array de valores binarios;
-%		3-Executa-se a subtracao do vetor original no vetor layout para obter-se as diferencas;
-%		4-Realiza-se uma etapa inicial de filtragem para a eliminacao do "pixelShaping";
-%		5-Calula-se o tamanho das regioes de erro, utilizando-se a convolucao da matriz diferenca 
-%			com uma matriz de centralizacao;
-%		6-Classificacao e plot dos erros encontrados;
+%		2-Converte-se para um array de valores binários;
+%		3-Executa-se a subtração do vetor original no vetor layout para obter-se as diferencas;
+%		4-Realiza-se uma etapa inicial de filtragem para a eliminação do "pixelShaping";
+%		5-Calula-se o tamanho das regiões de erro, utilizando-se a convolução da matriz diferença 
+%			com uma matriz de centralização;
+%		6-Classificação e plot dos erros encontrados;
 
 close all;
 clear all;
@@ -22,30 +24,31 @@ pkg load signal
 pkg load image
 
 %Parametros globais
-borderSize=20;	%tamanho da ragiao adicional na regiao de erro
-pixelShape=2;	%tamanho da regiao de tolerancia no filtro "anti-pixelShaping"
+borderSize=20;	%tamanho da ragião adicional na região de erro
+pixelShape=1;	%tamanho da região de tolerancia no filtro "anti-pixelShaping"
+residualError=5; %valor de tolerância admissivel para o erro residual apos os filtros na classificação
 
 %Acumuladores 
 rompimentos=0;	%acumulador de erros classificados como rompimentos
 curtos=0;		%acumulador de erros classificados como curtos
+desprezados=0;	%acumulador de erros classificados como despreziveis
 
-%Etapa 1 e 2- Carregamento e conversao das imagens
+%Etapa 1 e 2- Carregamento e conversão das imagens
 a=imread("layout.png");		%carrega a imagem do projeto
 A=im2bw(a, graythresh(a));	%converte para B&W
-
+clear a;
 b=imread("layout_m.png");	%carrega a imagem do layout
 B=im2bw(b, graythresh(b));	%converte para B&W
-
-if(sum(sum(abs(B-A))))		%verifica se existem erros na imagem
+clear b;
+%Etapa 3 - Cálculo da diferenca
+Dif=int8(B-A);
+[y x]= size(Dif);
+%verifica se existem erros na imagem
+if(sum(sum(abs(Dif))))		
 	disp("\n\n\nErros foram encontrados, iniciando deteccao de localizacao");
-	
-	%Etapa 3 - Calculo da diferenca
-	Dif=B-A;
-	[y x]= size(Dif);
-	
-	%Etapa 4 - Filtro para a correcao do pixelshaping causado pelo "resize" utilizado na normalizacao das imagens 
-	%cria uma regiao de tolerancia de n pixels entorno dos contornos do projeto original
-	tmp=bwboundaries(A);	%funcao que realiza a extracao dos contornos
+	%Etapa 4 - Filtro para a correcao do pixelsharping causado pelo "resize" utilizado na normalização das imagens 
+	%cria uma regiao de tolerância de n pixels entorno dos contornos do projeto original
+	tmp=bwboundaries(A);	%funcao que realiza a extração dos contornos
 	for i=2:length(tmp)		%para cada contorno encontrado aplica-se o filtro
 		for j=1:length(tmp{i})
 			tmp1=tmp{i};
@@ -66,52 +69,56 @@ if(sum(sum(abs(B-A))))		%verifica se existem erros na imagem
 	end	
 	figure; imshow(B);
 	
-	%Etapa 5 - Calculo das regioes de erro
-	M=zeros(20,20);M(6:15,6:15)=1;	%criacao do kernel do filtro (matriz de centralizacao)
+	%Etapa 5 - Calculo das regiões de erro
+	M=zeros(20,20);M(6:15,6:15)=1;	%criacao do kernel do filtro (matriz de centralização)
 	tmp1=conv2(abs(Dif),M);			%convolucao da matriz diferenca com o filtro
-	[b m]=bwboundaries(tmp1);		%deteccao dos contornos formados pelas regioes de erro, agora agrupados por vizinhanca pelo filtro anterior
+	[b m]=bwboundaries(tmp1);		%detecção dos contornos formados pelas regiões de erro, agora agrupados por vizinhanca pelo filtro anterior
 	disp(["Encontrados ",num2str(length(b))," erros, Inicinado analise..."]);
 	
-	%Etapa 6 - Classificacao dos erros	
+	%Etapa 6 - Classificação dos erros	
 	for i =1:length(b)
-		%pega os extremos do ccontorno de erro
+		%pega os extremos do contorno de erro
 		c1=max(b{i});	
 		c2=min(b{i});
-		%calcula as coordenadas das regioes de analise
-		ya=(c2(1)-borderSize);	%y inferior
-		yb=(c1(1)+borderSize);	%y superior
-		xa=(c2(2)-borderSize);	%x inferior
-		xb=(c1(2)+borderSize);	%x superior
-		if(xb>x) 	%seta os limites superiores de X
-			xb=x;
+		t=c1-c2;
+		if(t(1)>residualError & t(2)>residualError)
+			%calcula as coordenadas das regiões de analise
+			ya=(c2(1)-borderSize);	%y inferior
+			yb=(c1(1)+borderSize);	%y superior
+			xa=(c2(2)-borderSize);	%x inferior
+			xb=(c1(2)+borderSize);	%x superior
+			if(xb>x) 	%seta os limites superiores de X
+				xb=x;
+			end
+			if(yb>y)	%seta os limites superiores de Y
+				yb=y;
+			end
+			[tmp m]=bwlabel( A(ya:yb , xa:xb));	%calcula-se o numero de regiões fechadas no projeto original 
+			[tmp n]=bwlabel( B(ya:yb , xa:xb));	%calcula-se o numero de regiões fechadas no layout
+			[tmp p]=bwlabel(~A(ya:yb , xa:xb));	%calcula-se o numero de regiões fechadas no negativo do projeto original 
+			[tmp q]=bwlabel(~B(ya:yb , xa:xb));	%calcula-se o numero de regiões fechadas no negativo do layout
+			color='g';
+			%Se a contagem do numero de corpos solidos(contornos fechados) em uma determinada região for diferente no projeto original e no layout, ocorrereu um erro "destrutivo", caso contrário, o erro não impepedirá o funcionamento do circuito  
+			if(m>n)	%verifica-se se ocorreu a diminuição da contagem em uma região, erro classificado como rompimento de continuidade
+				color='b';
+				rompimentos=rompimentos+1;
+			elseif(p>q)	%verifica-se se ocorreu a diminuição da contagem em uma região, utilizando o negativo das imagens, erro classificado como criação de continuidade (curto)
+				color='r';
+				curtos=curtos+1;
+			end
+			%plot para a demarcacao visual da região do erro
+			p=[ (c2(2)-borderSize) (c2(1)-borderSize) ((c1(2)-c2(2))+borderSize) ((c1(1)-c2(1))+borderSize)];
+			rectangle('Position',p,'EdgeColor',color);
+		else
+			desprezados=desprezados+1;
 		end
-		if(yb>y)	%seta os limites superiores de Y
-			yb=y;
-		end
-		[tmp m]=bwlabel( A(ya:yb , xa:xb));	%calcula-se o numero de regioes fechadas no projeto original 
-		[tmp n]=bwlabel( B(ya:yb , xa:xb));	%calcula-se o numero de regioes fechadas no layout
-		[tmp p]=bwlabel(~A(ya:yb , xa:xb));	%calcula-se o numero de regioes fechadas no negativo do projeto original 
-		[tmp q]=bwlabel(~B(ya:yb , xa:xb));	%calcula-se o numero de regioes fechadas no negativo do layout
-		color='g';
-		%Se a contagem do numero de corpos solidos(contornos fechados) em uma determinada regiao for diferente no projeto original e no layout, ocorrereu um erro "destrutivo", caso contrario, o erro nao impepedira o funcionamento do circuito  
-		if(m>n)	%verivica-se se ocorreu a diminuicao da contagem em uma regiao, erro classificado como rompimento de continuidade
-			color='b';
-			rompimentos=rompimentos+1;
-		elseif(p>q)	%verivica-se se ocorreu a diminuicao da contagem em uma regiao, utilizando o negativo das imagens, erro classificado como criacao de continuidade (curto)
-			color='r';
-			curtos=curtos+1;
-		end
-		%plot para a demarcacao visal da regiao do erro
-		p=[ (c2(2)-borderSize) (c2(1)-borderSize) ((c1(2)-c2(2))+borderSize) ((c1(1)-c2(1))+borderSize)];
-		rectangle('Position',p,'EdgeColor',color);
 	end
 	%imprime resultados no prompt
 	disp(["\t Rompimentos de trilhas(Azul):",num2str(rompimentos)]);
 	disp(["\t Curtos(Vermelho):",num2str(curtos)]);
-	disp(["\t Erros nao destrutivos(Verde):",num2str(length(b)-rompimentos-curtos)]);
+	disp(["\t Desprezados(Nao plotados):",num2str(desprezados)]);
+	disp(["\t Erros nao destrutivos(Verde):",num2str(length(b)-rompimentos-curtos-desprezados)]);
+	
 else
 	disp("Sem erros");
 end
-
-%figure;
-%imshow(abw);
